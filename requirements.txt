@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+python-multipart
+SQLAlchemy
+pydantic
+faiss-cpu
+sentence-transformers
+PyPDF2
+numpy
+openai
+python-dotenv

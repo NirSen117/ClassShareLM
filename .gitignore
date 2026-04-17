@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.env
+backend/classroom.db
+backend/storage/uploads/
+backend/storage/faiss_indices/
+.DS_Store
+desktop.ini
+node_modules/
