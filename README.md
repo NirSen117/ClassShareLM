@@ -1,3 +1,12 @@
+---
+title: ClassShareLM
+emoji: 📚
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
 # ClassShareLM — Classroom Intelligence System
 
 A shared AI-powered platform for classroom subjects using Retrieval-Augmented Generation (RAG).
