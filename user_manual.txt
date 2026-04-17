@@ -1,0 +1,147 @@
+CLASSSHARELM USER MANUAL
+
+1. Introduction
+ClassShareLM is a classroom intelligence system that lets users upload PDF study material, ask grounded questions, and generate summaries, notes, and quizzes using Retrieval-Augmented Generation (RAG).
+
+2. What the System Does
+- Upload subject-wise PDF documents
+- Extract and index document text
+- Retrieve relevant chunks using FAISS vector search
+- Generate answers, summaries, notes, and MCQ quizzes
+- Store generated content in SQLite
+- Show a shared feed of generated results
+
+3. Project Links
+- GitHub: https://github.com/NirSen117/ClassShareLM
+- Frontend: https://nsen0411-classsharelm.hf.space
+- Backend: https://nsen0411-classsharelm.hf.space
+- RAG System: https://nsen0411-classsharelm.hf.space
+
+4. System Requirements
+- Web browser
+- Internet connection
+- PDF files for upload
+- Google AI Studio API key for Gemini generation in deployment
+
+5. Deployment Details
+The project is deployed as a single Docker-based Hugging Face Space. The frontend and backend are served from the same URL.
+
+6. User Roles
+- Student: uploads notes, asks questions, and generates study material
+- Teacher: uploads teaching content and creates summaries or quizzes
+- Admin/demo user: monitors generated outputs in the feed
+
+7. How to Use the Application
+7.1 Open the app
+Visit the deployed Hugging Face Space link in your browser.
+
+7.2 Set academic details
+Enter the academic year and subject name in the sidebar.
+
+7.3 Upload a PDF
+- Click the upload area or drag and drop a PDF file
+- Wait for the document to finish indexing
+- The system stores the document in a subject-specific index
+
+7.4 Ask a question
+- Open the Ask tab
+- Type a question related to the uploaded PDF
+- Submit the request
+- The app returns a grounded answer with source references
+
+7.5 Generate a summary
+- Open the Summary tab
+- Enter a focus topic or leave it blank for a general summary
+- Submit to receive a structured summary
+
+7.6 Generate notes
+- Open the Notes tab
+- Provide a topic if needed
+- Generate short bullet-point study notes
+
+7.7 Generate a quiz
+- Open the Quiz tab
+- Enter a topic
+- Select difficulty and number of questions
+- Generate MCQ-style quiz questions
+
+7.8 View the feed
+- Open the Feed tab
+- Browse previously generated answers, summaries, notes, and quizzes
+- If you want to change the subject, click the subject first and then click Refresh Feed
+
+8. How RAG Works in This Project
+- Step 1: The PDF is uploaded
+- Step 2: Text is extracted page by page
+- Step 3: Text is split into overlapping chunks
+- Step 4: Chunks are converted into embeddings
+- Step 5: Embeddings are stored in FAISS
+- Step 6: Relevant chunks are retrieved for the user query
+- Step 7: Gemini generates the final response using only retrieved context
+
+9. Source References
+The app includes source numbering such as [1], [2] so users can identify which chunks were used to answer the question.
+
+10. File Storage and Data Handling
+- Uploaded PDFs are stored locally in backend/storage/uploads/
+- FAISS indexes are stored in backend/storage/faiss_indices/
+- Generated content is stored in SQLite
+
+11. Credentials and Secrets
+- No credentials are hardcoded in the source code
+- GOOGLE_API_KEY is required for Gemini access
+- Credentials are stored as environment variables or Space secrets
+- GEMINI_MODEL is configured through deployment settings
+
+12. Common Troubleshooting
+12.1 Upload failed
+- Make sure the file is a valid PDF
+- Check that the subject and year are filled in
+
+12.2 No response from the model
+- Verify GOOGLE_API_KEY in the deployment secrets
+- Confirm GEMINI_MODEL is set correctly
+- Restart the Hugging Face Space after updating secrets
+
+12.3 Generic API error
+- Usually caused by an invalid key, missing permission, or wrong model name
+- Common error meanings:
+  - 401: Invalid or expired key
+  - 403: Permission issue
+  - 404: Model not found
+  - 429: Quota exceeded
+
+12.4 No indexed content found
+- Upload at least one PDF for that subject first
+- Make sure the year and subject match the uploaded document
+
+12.5 Feed does not change subject
+- Click the required subject first
+- Then click Refresh Feed to load the content for that subject
+
+13. Tips for Better Results
+- Upload clean PDFs with readable text
+- Use one subject per folder or topic area
+- Ask direct questions instead of vague ones
+- Use summaries and notes for revision
+- Use quizzes to test understanding
+
+14. Limitations
+- The app depends on uploaded PDFs for grounded responses
+- The quality of answers depends on the quality of document text
+- The free-tier API may have rate limits
+- Storage is local to the deployment unless moved to persistent cloud storage
+
+15. Future Improvements
+- Add user authentication
+- Add persistent cloud storage
+- Support more document formats
+- Add better analytics and dashboards
+- Add collaborative class sharing features
+
+16. Quick Start Summary
+- Open the app
+- Enter year and subject
+- Upload a PDF
+- Ask a question or generate study content
+- Review answers and sources in the feed
