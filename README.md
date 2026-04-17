@@ -118,8 +118,8 @@ pip install -r requirements.txt
 Create `.env` in `backend/`:
 
 ```env
-OPENAI_API_KEY=your_api_key_here
-OPENAI_MODEL=gpt-4o-mini
+GOOGLE_API_KEY=your_google_ai_studio_key_here
+GEMINI_MODEL=gemini-2.0-flash
 EMBEDDING_MODEL_NAME=sentence-transformers/all-MiniLM-L6-v2
 TOP_K=4
 CHUNK_SIZE=900

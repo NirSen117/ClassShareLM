@@ -7,5 +7,5 @@ faiss-cpu
 sentence-transformers
 PyPDF2
 numpy
-openai
+google-genai
 python-dotenv
