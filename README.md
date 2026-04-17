@@ -166,18 +166,40 @@ git push -u origin main
 
 3. Keep your `.env` file out of GitHub. Use [backend/.env.example](backend/.env.example) as the template.
 
-## Hosting on Render
+## Hosting Without Local Dependencies
 
-The backend (FastAPI) serves both the API and the static web frontend from a single service.
+The easiest way to avoid installing Python, FAISS, or any other libraries on your laptop is to host the app from a Docker image.
 
-### Deploy to Render
+### Recommended Free Option: Hugging Face Spaces
 
-1. Create a new **Web Service** on Render from the GitHub repo.
-2. **Build command**: `pip install -r requirements.txt`
-3. **Start command**: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
-4. Add environment variables from `backend/.env.example`.
+1. Push this repo to GitHub.
+2. Create a new **Docker Space** on Hugging Face.
+3. Connect the Space to your GitHub repo or upload the files.
+4. Add the environment variables from [backend/.env.example](backend/.env.example) in the Space settings.
+5. Hugging Face builds and runs the container for you, so your local machine does not need any dependencies.
 
-That's it — one service handles everything.
+The app is already set up to run from a single backend service, so this one deployment hosts both the API and the web UI.
+
+### Docker Run Locally Only If You Want To Test
+
+You do not need Docker installed locally to use the hosted app, but if you want to test the image:
+
+```bash
+docker build -t classroom-intelligence .
+docker run -p 7860:7860 --env-file backend/.env classroom-intelligence
+```
+
+Then open `http://localhost:7860`.
+
+### Render Alternative
+
+If you prefer Render, create a **Web Service** from the same GitHub repo and use the Dockerfile.
+
+- Build: handled by Docker
+- Start: handled by Docker CMD
+- Add the same environment variables in the Render dashboard
+
+This also avoids any local dependency setup.
 
 ## Deployment Notes
 
