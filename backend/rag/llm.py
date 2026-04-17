@@ -12,15 +12,34 @@ MAX_RETRIES = 2
 RETRY_BASE_DELAY = 5  # seconds
 
 
+def _has_real_api_key(api_key: str | None) -> bool:
+    if not api_key:
+        return False
+    key = api_key.strip()
+    if not key:
+        return False
+    # Common placeholder values copied from docs or env templates.
+    placeholder_tokens = (
+        "your_",
+        "replace_",
+        "example",
+        "changeme",
+        "<",
+        ">",
+    )
+    lowered = key.lower()
+    return not any(token in lowered for token in placeholder_tokens)
+
+
 class LLMService:
     def __init__(self):
-        self.client = genai.Client(api_key=GOOGLE_API_KEY) if GOOGLE_API_KEY else None
+        self.client = genai.Client(api_key=GOOGLE_API_KEY) if _has_real_api_key(GOOGLE_API_KEY) else None
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         if self.client is None:
             # Fallback keeps the demo usable without an API key.
             return (
-                "⚠️ GOOGLE_API_KEY not set. Returning context-grounded fallback output.\n\n"
+                "⚠️ GOOGLE_API_KEY is missing or invalid in deployment secrets. Returning context-grounded fallback output.\n\n"
                 + user_prompt[:1800]
             )
 
@@ -60,9 +79,17 @@ class LLMService:
                     )
                 # Non-rate-limit client error
                 logger.error("Gemini ClientError (%s): %s", status, exc)
+                status_help: dict[int, str] = {
+                    400: "Bad request. Verify GEMINI_MODEL is valid and available for your key.",
+                    401: "Unauthorized. GOOGLE_API_KEY is invalid or expired.",
+                    403: "Forbidden. Your key may not have access to this model/project.",
+                    404: "Model not found. Check GEMINI_MODEL in environment variables.",
+                }
+                help_text = status_help.get(status, "Please verify GOOGLE_API_KEY and GEMINI_MODEL in deployment secrets.")
                 return (
                     f"⚠️ **API Error** (code {status})\n\n"
                     "The AI model returned an error. Please try again later.\n\n"
+                    f"Hint: {help_text}\n\n"
                     "Retrieved context:\n\n" + user_prompt[:2000]
                 )
 

@@ -128,7 +128,7 @@ Create `.env` in `backend/`:
 
 ```env
 GOOGLE_API_KEY=your_google_ai_studio_key_here
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-2.5-flash-lite
 EMBEDDING_MODEL_NAME=sentence-transformers/all-MiniLM-L6-v2
 TOP_K=4
 CHUNK_SIZE=900
@@ -188,6 +188,23 @@ The easiest way to avoid installing Python, FAISS, or any other libraries on you
 5. Hugging Face builds and runs the container for you, so your local machine does not need any dependencies.
 
 The app is already set up to run from a single backend service, so this one deployment hosts both the API and the web UI.
+
+### Hugging Face Spaces Troubleshooting
+
+If generation returns an "API Error" message:
+
+1. Open Space Settings -> Variables and secrets.
+2. Set `GOOGLE_API_KEY` as a Secret (not a plain variable) with a valid Google AI Studio key.
+3. Set `GEMINI_MODEL` to a model your key can access, for example `gemini-2.5-flash-lite`.
+4. Do not use placeholder values like `your_google_ai_studio_key_here`.
+5. Restart the Space after changing secrets.
+
+Common API status meanings:
+
+- 401: Invalid/expired API key
+- 403: Key does not have permission for the selected model/project
+- 404: Model name is wrong or unavailable
+- 429: Quota/rate limit exceeded
 
 ### Docker Run Locally Only If You Want To Test
 
