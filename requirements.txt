@@ -9,3 +9,4 @@ PyPDF2
 numpy
 google-genai
 python-dotenv
+firebase-admin

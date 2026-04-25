@@ -1,6 +1,6 @@
 /* ============================================================
-   ClassShareLM — Frontend Application
-   API client, tab system, form handlers, rendering
+   ClassShareLM — Frontend Application v2
+   Firebase Auth, Sections, Personal/Public Feed
    ============================================================ */
 
 (function () {
@@ -13,21 +13,19 @@
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
 
+  // ---- State ----
+  let currentUser = null;   // Firebase user object
+  let idToken = null;        // Firebase ID token
+
   // ---- Toast Notifications ----
   function showToast(message, type = 'info') {
     const container = $('#toast-container');
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    const icons = {
-      success: '✓',
-      error: '✕',
-      info: 'ℹ',
-    };
+    const icons = { success: '✓', error: '✕', info: 'ℹ' };
     toast.innerHTML = `<span>${icons[type] || 'ℹ'}</span><span>${escapeHtml(message)}</span>`;
     container.appendChild(toast);
-    setTimeout(() => {
-      if (toast.parentNode) toast.remove();
-    }, 4200);
+    setTimeout(() => { if (toast.parentNode) toast.remove(); }, 4200);
   }
 
   // ---- Escape HTML ----
@@ -41,42 +39,19 @@
   function renderMarkdown(text) {
     if (!text) return '';
     let html = escapeHtml(text);
-
-    // Code blocks
-    html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-      return `<pre><code>${code.trim()}</code></pre>`;
-    });
-
-    // Inline code
+    html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => `<pre><code>${code.trim()}</code></pre>`);
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    // Headers
     html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
     html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
     html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-
-    // Bold
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-
-    // Italic
     html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-
-    // Unordered lists
     html = html.replace(/^[-•] (.+)$/gm, '<li>$1</li>');
     html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
-
-    // Ordered lists
     html = html.replace(/^\d+\.\s(.+)$/gm, '<li>$1</li>');
-
-    // Line breaks for remaining lines
     html = html.replace(/\n\n/g, '</p><p>');
     html = html.replace(/\n/g, '<br/>');
-
-    // Wrap in paragraph if needed
-    if (!html.startsWith('<')) {
-      html = '<p>' + html + '</p>';
-    }
-
+    if (!html.startsWith('<')) html = '<p>' + html + '</p>';
     return html;
   }
 
@@ -140,11 +115,18 @@
     }
   }
 
+  // ---- Auth Headers ----
+  function authHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    return headers;
+  }
+
   // ---- API Client ----
   async function apiPost(endpoint, body) {
     const res = await fetch(`${API_BASE}${endpoint}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -159,7 +141,9 @@
     for (const [k, v] of Object.entries(params)) {
       if (v !== null && v !== undefined && v !== '') url.searchParams.set(k, v);
     }
-    const res = await fetch(url.toString());
+    const res = await fetch(url.toString(), {
+      headers: idToken ? { 'Authorization': `Bearer ${idToken}` } : {},
+    });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       throw new Error(err.detail || 'Request failed');
@@ -167,13 +151,17 @@
     return res.json();
   }
 
-  async function apiUpload(file, year, subject) {
+  async function apiUpload(file, year, section, subject) {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('year', year);
+    formData.append('section', section);
     formData.append('subject', subject);
+    const headers = {};
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
     const res = await fetch(`${API_BASE}/documents/upload`, {
       method: 'POST',
+      headers,
       body: formData,
     });
     if (!res.ok) {
@@ -183,24 +171,212 @@
     return res.json();
   }
 
-  // ---- Get year/subject values ----
+  // ---- Get form values ----
   function getYear() { return ($('#input-year').value || '').trim(); }
+  function getSection() {
+    const sel = $('#input-section');
+    return sel ? (sel.value || '').trim() : '';
+  }
   function getSubject() { return ($('#input-subject').value || '').trim(); }
 
-  function validateSubject() {
-    const year = getYear();
-    const subject = getSubject();
-    if (!year || !subject) {
-      showToast('Please set Academic Year and Subject in the sidebar.', 'error');
+  function validateConfig() {
+    if (!getYear() || !getSection() || !getSubject()) {
+      showToast('Please set Year, Section, and Subject in the sidebar.', 'error');
       return false;
     }
     return true;
+  }
+
+  // ---- User Avatar Helper ----
+  function getInitial(name) {
+    if (!name) return '?';
+    return name.charAt(0).toUpperCase();
+  }
+
+  // ================================================================
+  //  FIREBASE AUTH
+  // ================================================================
+  function setupAuth() {
+    const auth = window.firebaseAuth;
+    if (!auth) {
+      console.warn('Firebase Auth not initialized');
+      return;
+    }
+
+    const overlay = $('#auth-overlay');
+    const appMain = $('#app-main');
+    const loginForm = $('#auth-login');
+    const registerForm = $('#auth-register');
+
+    // Toggle between login/register
+    $('#show-register').addEventListener('click', (e) => {
+      e.preventDefault();
+      loginForm.hidden = true;
+      registerForm.hidden = false;
+    });
+
+    $('#show-login').addEventListener('click', (e) => {
+      e.preventDefault();
+      registerForm.hidden = true;
+      loginForm.hidden = false;
+    });
+
+    // Email/Password Login
+    $('#btn-login').addEventListener('click', async () => {
+      const email = $('#login-email').value.trim();
+      const password = $('#login-password').value;
+      if (!email || !password) {
+        showToast('Please enter email and password.', 'error');
+        return;
+      }
+      const btn = $('#btn-login');
+      setLoading(btn, true);
+      try {
+        await auth.signInWithEmailAndPassword(email, password);
+      } catch (err) {
+        showToast(friendlyAuthError(err), 'error');
+      } finally {
+        setLoading(btn, false);
+      }
+    });
+
+    // Email/Password Register
+    $('#btn-register').addEventListener('click', async () => {
+      const name = $('#register-name').value.trim();
+      const email = $('#register-email').value.trim();
+      const password = $('#register-password').value;
+      if (!name || !email || !password) {
+        showToast('Please fill in all fields.', 'error');
+        return;
+      }
+      if (password.length < 6) {
+        showToast('Password must be at least 6 characters.', 'error');
+        return;
+      }
+      const btn = $('#btn-register');
+      setLoading(btn, true);
+      try {
+        const cred = await auth.createUserWithEmailAndPassword(email, password);
+        await cred.user.updateProfile({ displayName: name });
+      } catch (err) {
+        showToast(friendlyAuthError(err), 'error');
+      } finally {
+        setLoading(btn, false);
+      }
+    });
+
+    // Google Sign-In
+    const googleProvider = new firebase.auth.GoogleAuthProvider();
+
+    $('#btn-google').addEventListener('click', async () => {
+      try {
+        await auth.signInWithPopup(googleProvider);
+      } catch (err) {
+        showToast(friendlyAuthError(err), 'error');
+      }
+    });
+
+    $('#btn-google-register').addEventListener('click', async () => {
+      try {
+        await auth.signInWithPopup(googleProvider);
+      } catch (err) {
+        showToast(friendlyAuthError(err), 'error');
+      }
+    });
+
+    // Logout
+    $('#btn-logout').addEventListener('click', async () => {
+      try {
+        await auth.signOut();
+        showToast('Signed out successfully.', 'info');
+      } catch (err) {
+        showToast('Sign out failed.', 'error');
+      }
+    });
+
+    // Auth State Observer
+    auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        currentUser = user;
+        try {
+          idToken = await user.getIdToken();
+        } catch (e) {
+          idToken = null;
+        }
+        // Update UI
+        const displayName = user.displayName || user.email.split('@')[0];
+        $('#user-avatar').textContent = getInitial(displayName);
+        $('#user-name').textContent = displayName;
+
+        overlay.classList.add('hidden');
+        appMain.hidden = false;
+
+        // Load data
+        loadSections();
+        loadSubjects();
+
+        showToast(`Welcome, ${displayName}!`, 'success');
+
+        // Refresh token periodically (every 50 min)
+        setInterval(async () => {
+          try {
+            idToken = await user.getIdToken(true);
+          } catch (e) { /* ignore */ }
+        }, 50 * 60 * 1000);
+
+      } else {
+        currentUser = null;
+        idToken = null;
+        overlay.classList.remove('hidden');
+        appMain.hidden = true;
+      }
+    });
+  }
+
+  function friendlyAuthError(err) {
+    const map = {
+      'auth/email-already-in-use': 'This email is already registered. Try signing in.',
+      'auth/invalid-email': 'Invalid email address.',
+      'auth/user-not-found': 'No account found with this email.',
+      'auth/wrong-password': 'Incorrect password.',
+      'auth/weak-password': 'Password must be at least 6 characters.',
+      'auth/too-many-requests': 'Too many attempts. Please try again later.',
+      'auth/popup-closed-by-user': 'Sign-in popup was closed.',
+      'auth/network-request-failed': 'Network error. Check your connection.',
+    };
+    return map[err.code] || err.message || 'Authentication error.';
+  }
+
+  // ================================================================
+  //  SECTIONS
+  // ================================================================
+  async function loadSections() {
+    const year = getYear();
+    if (!year) return;
+    try {
+      const data = await apiGet('/sections', { year });
+      const select = $('#input-section');
+      const currentVal = select.value;
+      select.innerHTML = '<option value="">— Select or create —</option>';
+      for (const s of (data.items || [])) {
+        const opt = document.createElement('option');
+        opt.value = s.name;
+        opt.textContent = s.name;
+        select.appendChild(opt);
+      }
+      if (currentVal) select.value = currentVal;
+    } catch (err) {
+      console.error('Error loading sections:', err);
+    }
   }
 
   // ================================================================
   //  INIT
   // ================================================================
   document.addEventListener('DOMContentLoaded', () => {
+
+    // ---- Firebase Auth ----
+    setupAuth();
 
     // ---- Tab Navigation ----
     const tabBtns = $$('.tab-btn');
@@ -222,10 +398,7 @@
     const sidebarToggle = $('#sidebar-toggle');
     const sidebar = $('#sidebar');
     if (sidebarToggle && sidebar) {
-      sidebarToggle.addEventListener('click', () => {
-        sidebar.classList.toggle('open');
-      });
-      // Close sidebar when clicking outside on mobile
+      sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
       document.addEventListener('click', (e) => {
         if (sidebar.classList.contains('open') && !sidebar.contains(e.target) && !sidebarToggle.contains(e.target)) {
           sidebar.classList.remove('open');
@@ -233,11 +406,57 @@
       });
     }
 
+    // ---- Year change → reload sections ----
+    const yearInput = $('#input-year');
+    let yearTimeout;
+    yearInput.addEventListener('input', () => {
+      clearTimeout(yearTimeout);
+      yearTimeout = setTimeout(() => {
+        loadSections();
+        loadSubjects();
+      }, 500);
+    });
+
+    // ---- Section change → reload subjects ----
+    const sectionSelect = $('#input-section');
+    sectionSelect.addEventListener('change', () => {
+      loadSubjects();
+    });
+
+    // ---- Add Section ----
+    $('#btn-add-section').addEventListener('click', async () => {
+      const year = getYear();
+      if (!year) {
+        showToast('Set Academic Year first.', 'error');
+        return;
+      }
+      const name = prompt('Enter new section name (e.g. Section A):');
+      if (!name || !name.trim()) return;
+
+      try {
+        await apiPost('/sections/upsert', { year, name: name.trim() });
+        showToast(`Section "${name.trim()}" created!`, 'success');
+        await loadSections();
+        sectionSelect.value = name.trim();
+        loadSubjects();
+      } catch (err) {
+        showToast(`Failed: ${err.message}`, 'error');
+      }
+    });
+
     // ---- Load Subjects ----
     async function loadSubjects() {
+      const list = $('#subject-list');
+      const year = getYear();
+      const section = getSection();
+
+      if (!year || !section) {
+        list.innerHTML = '<span class="chip-placeholder">Select year and section first</span>';
+        return;
+      }
+
       try {
-        const data = await apiGet('/subjects');
-        const list = $('#subject-list');
+        const data = await apiGet('/subjects', { year, section });
         const items = data.items || [];
         if (items.length === 0) {
           list.innerHTML = '<span class="chip-placeholder">No subjects yet — upload a PDF to start</span>';
@@ -247,21 +466,19 @@
         for (const s of items) {
           const chip = document.createElement('button');
           chip.className = 'chip';
-          chip.textContent = `${s.subject} (${s.year})`;
+          chip.textContent = s.subject;
           chip.addEventListener('click', () => {
-            $('#input-year').value = s.year;
             $('#input-subject').value = s.subject;
             $$('.chip').forEach((c) => c.classList.remove('active'));
             chip.classList.add('active');
-            showToast(`Selected: ${s.subject} — ${s.year}`, 'info');
+            showToast(`Selected: ${s.subject}`, 'info');
           });
           list.appendChild(chip);
         }
       } catch (err) {
-        $('#subject-list').innerHTML = '<span class="chip-placeholder">Could not load subjects</span>';
+        list.innerHTML = '<span class="chip-placeholder">Could not load subjects</span>';
       }
     }
-    loadSubjects();
 
     // ---- PDF Upload ----
     const dropZone = $('#drop-zone');
@@ -300,18 +517,15 @@
     });
 
     btnUpload.addEventListener('click', async () => {
-      if (!selectedFile) {
-        showToast('Select a PDF first.', 'error');
-        return;
-      }
-      if (!validateSubject()) return;
+      if (!selectedFile) { showToast('Select a PDF first.', 'error'); return; }
+      if (!validateConfig()) return;
 
       btnUpload.disabled = true;
       btnUpload.textContent = 'Uploading...';
       uploadProgress.hidden = false;
 
       try {
-        const result = await apiUpload(selectedFile, getYear(), getSubject());
+        const result = await apiUpload(selectedFile, getYear(), getSection(), getSubject());
         showToast(result.message || 'Document uploaded and indexed!', 'success');
         selectedFile = null;
         fileNameEl.textContent = '';
@@ -331,7 +545,7 @@
     // ---- ASK ----
     const btnAsk = $('#btn-ask');
     btnAsk.addEventListener('click', async () => {
-      if (!validateSubject()) return;
+      if (!validateConfig()) return;
       const question = $('#ask-question').value.trim();
       if (!question) { showToast('Enter a question.', 'error'); return; }
 
@@ -342,6 +556,7 @@
       try {
         const data = await apiPost('/generate/ask', {
           year: getYear(),
+          section: getSection(),
           subject: getSubject(),
           question,
           explanation_mode: $('#ask-explain').checked,
@@ -359,7 +574,7 @@
     // ---- SUMMARY ----
     const btnSummary = $('#btn-summary');
     btnSummary.addEventListener('click', async () => {
-      if (!validateSubject()) return;
+      if (!validateConfig()) return;
 
       const resultEl = $('#result-summary');
       showSkeleton(resultEl);
@@ -368,6 +583,7 @@
       try {
         const data = await apiPost('/generate/summary', {
           year: getYear(),
+          section: getSection(),
           subject: getSubject(),
           focus: $('#summary-focus').value.trim() || null,
         });
@@ -384,7 +600,7 @@
     // ---- NOTES ----
     const btnNotes = $('#btn-notes');
     btnNotes.addEventListener('click', async () => {
-      if (!validateSubject()) return;
+      if (!validateConfig()) return;
 
       const resultEl = $('#result-notes');
       showSkeleton(resultEl);
@@ -393,6 +609,7 @@
       try {
         const data = await apiPost('/generate/notes', {
           year: getYear(),
+          section: getSection(),
           subject: getSubject(),
           focus: $('#notes-focus').value.trim() || null,
         });
@@ -409,7 +626,7 @@
     // ---- QUIZ ----
     const btnQuiz = $('#btn-quiz');
     btnQuiz.addEventListener('click', async () => {
-      if (!validateSubject()) return;
+      if (!validateConfig()) return;
       const topic = $('#quiz-topic').value.trim();
       if (!topic) { showToast('Enter a quiz topic.', 'error'); return; }
 
@@ -420,6 +637,7 @@
       try {
         const data = await apiPost('/generate/quiz', {
           year: getYear(),
+          section: getSection(),
           subject: getSubject(),
           topic,
           difficulty: $('#quiz-difficulty').value,
@@ -436,14 +654,36 @@
     });
 
     // ---- FEED ----
+    // Feed sub-tab switching
+    const feedTabs = $$('.feed-tab');
+    const feedMy = $('#feed-my');
+    const feedPublic = $('#feed-public');
+
+    feedTabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        feedTabs.forEach((t) => t.classList.remove('active'));
+        tab.classList.add('active');
+        const target = tab.dataset.feed;
+        if (target === 'my') {
+          feedMy.hidden = false;
+          feedPublic.hidden = true;
+        } else {
+          feedMy.hidden = true;
+          feedPublic.hidden = false;
+        }
+      });
+    });
+
+    // Feed refresh
     const btnFeed = $('#btn-feed');
     btnFeed.addEventListener('click', async () => {
-      const feedArea = $('#result-feed');
-      feedArea.innerHTML = `
+      const skeleton = `
         <div class="skeleton skeleton-lg"></div>
         <div class="skeleton skeleton-md"></div>
         <div class="skeleton skeleton-md"></div>
       `;
+      feedMy.innerHTML = skeleton;
+      feedPublic.innerHTML = skeleton;
 
       try {
         const data = await apiGet('/feed', {
@@ -451,53 +691,65 @@
           subject: getSubject(),
           limit: 50,
         });
-        const items = data.items || [];
-        if (items.length === 0) {
-          feedArea.innerHTML = `
-            <div class="feed-empty">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-              <p>No generated content yet.<br/>Upload documents and start generating!</p>
-            </div>`;
-          return;
-        }
 
-        feedArea.innerHTML = '';
-        for (const item of items) {
-          const typeClass = `feed-type-${item.content_type}`;
-          const date = item.created_at ? new Date(item.created_at).toLocaleString() : '';
-          const feedEl = document.createElement('div');
-          feedEl.className = 'feed-item';
-          feedEl.innerHTML = `
-            <div class="feed-header">
-              <span class="feed-type-badge ${typeClass}">${escapeHtml(item.content_type)}</span>
-              <span class="feed-meta">${escapeHtml(item.subject)} · ${escapeHtml(item.year)} · ${date}</span>
-              ${item.is_cached ? '<span class="result-badge badge-cached" style="margin:0">Cached</span>' : ''}
-            </div>
-            ${item.query_text ? `<p class="feed-query">"${escapeHtml(item.query_text)}"</p>` : ''}
-            <div class="feed-content" id="feed-content-${item.id}">
-              ${renderMarkdown(item.content)}
-            </div>
-            <button class="feed-expand" data-target="feed-content-${item.id}">Show more ▾</button>
-            ${renderSources(item.sources)}
-          `;
-          feedArea.appendChild(feedEl);
-        }
+        renderFeedItems(feedMy, data.my_items || [], true);
+        renderFeedItems(feedPublic, data.public_items || [], false);
 
-        // Expand/collapse
-        feedArea.querySelectorAll('.feed-expand').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            const target = document.getElementById(btn.dataset.target);
-            if (target) {
-              const isExpanded = target.classList.toggle('expanded');
-              btn.textContent = isExpanded ? 'Show less ▴' : 'Show more ▾';
-            }
-          });
-        });
       } catch (err) {
-        feedArea.innerHTML = `<p style="color:var(--error)">Error loading feed: ${escapeHtml(err.message)}</p>`;
+        feedMy.innerHTML = `<p style="color:var(--error)">Error: ${escapeHtml(err.message)}</p>`;
+        feedPublic.innerHTML = `<p style="color:var(--error)">Error: ${escapeHtml(err.message)}</p>`;
         showToast(err.message, 'error');
       }
     });
+
+    function renderFeedItems(container, items, isPersonal) {
+      if (items.length === 0) {
+        const label = isPersonal ? 'your personal' : 'the public';
+        container.innerHTML = `
+          <div class="feed-empty">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <p>No content in ${label} feed yet.<br/>Generate some content to see it here!</p>
+          </div>`;
+        return;
+      }
+
+      container.innerHTML = '';
+      for (const item of items) {
+        const typeClass = `feed-type-${item.content_type}`;
+        const date = item.created_at ? new Date(item.created_at).toLocaleString() : '';
+        const userName = item.user_display_name || 'Anonymous';
+        const initial = getInitial(userName);
+
+        const feedEl = document.createElement('div');
+        feedEl.className = 'feed-item';
+        feedEl.innerHTML = `
+          <div class="feed-header">
+            <div class="feed-user-avatar">${initial}</div>
+            <span class="feed-user-name">${escapeHtml(userName)}</span>
+            <span class="feed-type-badge ${typeClass}">${escapeHtml(item.content_type)}</span>
+            <span class="feed-meta">${escapeHtml(item.subject)} · ${escapeHtml(item.section || '')} · ${date}</span>
+          </div>
+          ${item.query_text ? `<p class="feed-query">"${escapeHtml(item.query_text)}"</p>` : ''}
+          <div class="feed-content" id="feed-content-${item.id}">
+            ${renderMarkdown(item.content)}
+          </div>
+          <button class="feed-expand" data-target="feed-content-${item.id}">Show more ▾</button>
+          ${renderSources(item.sources)}
+        `;
+        container.appendChild(feedEl);
+      }
+
+      // Expand/collapse
+      container.querySelectorAll('.feed-expand').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const target = document.getElementById(btn.dataset.target);
+          if (target) {
+            const isExpanded = target.classList.toggle('expanded');
+            btn.textContent = isExpanded ? 'Show less ▴' : 'Show more ▾';
+          }
+        });
+      });
+    }
 
     // ---- Auto-load feed on tab switch ----
     const feedTab = $('#tab-feed');

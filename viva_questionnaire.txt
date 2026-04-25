@@ -1,0 +1,91 @@
+CLASSSHARELM VIVA QUESTIONNAIRE
+
+1. What is the name of your project?
+Ans: ClassShareLM.
+
+2. What problem does the project solve?
+Ans: It helps students and teachers upload class PDFs, ask questions from the material, and generate summaries, notes, and quizzes using RAG.
+
+3. What is the main idea behind the project?
+Ans: The project combines document upload, retrieval-augmented generation, and a shared feed to create a classroom knowledge assistant.
+
+4. What technologies are used in the project?
+Ans: FastAPI, Python, SQLite, FAISS, sentence-transformers, Gemini via google-genai, HTML, CSS, and JavaScript.
+
+5. Does the project have a backend?
+Ans: Yes. The backend is a FastAPI application in backend/main.py.
+
+6. What does the backend do?
+Ans: It handles document upload, subject management, question answering, summary generation, notes generation, quiz generation, and feed retrieval.
+
+7. Does the project use RAG?
+Ans: Yes. The system uses RAG to retrieve relevant chunks from uploaded PDFs before generating answers.
+
+8. How does the RAG pipeline work?
+Ans: First the PDF is loaded and text is extracted, then the text is chunked, converted into embeddings, stored in FAISS, retrieved using similarity search, and finally passed to Gemini for generation.
+
+9. What is the role of FAISS in the project?
+Ans: FAISS stores and searches vector embeddings for fast similarity-based retrieval of relevant document chunks.
+
+10. What is the role of embeddings?
+Ans: Embeddings convert text into numeric vectors so semantically similar content can be retrieved efficiently.
+
+11. What model is used for embeddings?
+Ans: sentence-transformers/all-MiniLM-L6-v2.
+
+12. What AI model is used for generation?
+Ans: Gemini 2.5 Flash Lite.
+
+13. Is the frontend separate from the backend?
+Ans: No. The frontend is served by the same FastAPI backend service.
+
+14. What is the frontend link?
+Ans: https://nsen0411-classsharelm.hf.space
+
+15. What is the backend link?
+Ans: https://nsen0411-classsharelm.hf.space
+
+16. What is the RAG system link?
+Ans: https://nsen0411-classsharelm.hf.space
+
+17. What is the GitHub link?
+Ans: https://github.com/NirSen117/ClassShareLM
+
+18. What happens when a user uploads a PDF?
+Ans: The PDF is extracted, chunked, embedded, stored in a subject-specific FAISS index, and becomes available for question answering and content generation.
+
+19. What outputs can the user generate?
+Ans: The user can generate answers, summaries, notes, and quizzes.
+
+20. How are sources shown in the output?
+Ans: Retrieved chunks are returned with source references such as file name, page number, and chunk index.
+
+21. What database is used?
+Ans: SQLite.
+
+22. What is stored in the database?
+Ans: Subjects, uploaded document metadata, generated content, cached results, and source references.
+
+23. Are credentials hardcoded in the code?
+Ans: No. Credentials are read from environment variables.
+
+24. What credentials are needed?
+Ans: GOOGLE_API_KEY is required for Gemini generation.
+
+25. What should be mentioned about credentials in the form?
+Ans: No hardcoded credentials are present; runtime credentials are configured using deployment secrets or environment variables.
+
+26. How is the app deployed?
+Ans: It is deployed as a Docker-based Hugging Face Space.
+
+27. Why is this a good architecture for a hackathon?
+Ans: It is simple to deploy, easy to demo, and keeps the frontend, backend, and RAG pipeline in one service.
+
+28. What is the main strength of the project?
+Ans: It provides grounded, document-based responses instead of generic AI answers.
+
+29. What is the main limitation?
+Ans: It depends on the availability of the uploaded documents and the configured Gemini API key.
+
+30. How would you improve this project further?
+Ans: Add better authentication, persistent cloud storage, improved analytics, and support for more document types.

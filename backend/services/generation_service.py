@@ -3,7 +3,7 @@ import json
 from sqlalchemy.orm import Session
 
 from ..config import TOP_K
-from ..models import GeneratedContent, Subject
+from ..models import GeneratedContent, Section, Subject, User
 from ..rag.embedding import embed_query
 from ..rag.llm import LLMService
 from ..rag.vector_store import VectorStoreManager
@@ -70,6 +70,7 @@ def _save_generation(
     db: Session,
     *,
     subject_id: int,
+    user_id: int | None,
     content_type: str,
     query_text: str | None,
     difficulty: str | None,
@@ -80,6 +81,7 @@ def _save_generation(
 ) -> GeneratedContent:
     item = GeneratedContent(
         subject_id=subject_id,
+        user_id=user_id,
         content_type=content_type,
         query_text=query_text,
         difficulty=difficulty,
@@ -100,7 +102,9 @@ def _run_rag(year: str, subject_name: str, query: str, top_k: int = TOP_K) -> tu
     return results, _format_sources(results)
 
 
-def ask_question(db: Session, year: str, subject_name: str, question: str, explanation_mode: bool) -> tuple[str, list[dict], bool]:
+def ask_question(
+    db: Session, year: str, subject_name: str, question: str, explanation_mode: bool, user_id: int | None = None
+) -> tuple[str, list[dict], bool]:
     subject = _subject_or_404(db, year, subject_name)
     if subject is None:
         raise ValueError("Subject not found. Upload at least one document first.")
@@ -123,6 +127,7 @@ def ask_question(db: Session, year: str, subject_name: str, question: str, expla
         _save_generation(
             db,
             subject_id=subject.id,
+            user_id=user_id,
             content_type="answer",
             query_text=question.strip(),
             difficulty=None,
@@ -146,6 +151,7 @@ def ask_question(db: Session, year: str, subject_name: str, question: str, expla
     _save_generation(
         db,
         subject_id=subject.id,
+        user_id=user_id,
         content_type="answer",
         query_text=question.strip(),
         difficulty=None,
@@ -157,7 +163,9 @@ def ask_question(db: Session, year: str, subject_name: str, question: str, expla
     return content, sources, False
 
 
-def generate_summary(db: Session, year: str, subject_name: str, focus: str | None) -> tuple[str, list[dict], bool]:
+def generate_summary(
+    db: Session, year: str, subject_name: str, focus: str | None, user_id: int | None = None
+) -> tuple[str, list[dict], bool]:
     subject = _subject_or_404(db, year, subject_name)
     if subject is None:
         raise ValueError("Subject not found. Upload at least one document first.")
@@ -181,6 +189,7 @@ def generate_summary(db: Session, year: str, subject_name: str, focus: str | Non
     _save_generation(
         db,
         subject_id=subject.id,
+        user_id=user_id,
         content_type="summary",
         query_text=cache_key,
         difficulty=None,
@@ -192,7 +201,9 @@ def generate_summary(db: Session, year: str, subject_name: str, focus: str | Non
     return content, sources, False
 
 
-def generate_notes(db: Session, year: str, subject_name: str, focus: str | None) -> tuple[str, list[dict], bool]:
+def generate_notes(
+    db: Session, year: str, subject_name: str, focus: str | None, user_id: int | None = None
+) -> tuple[str, list[dict], bool]:
     subject = _subject_or_404(db, year, subject_name)
     if subject is None:
         raise ValueError("Subject not found. Upload at least one document first.")
@@ -217,6 +228,7 @@ def generate_notes(db: Session, year: str, subject_name: str, focus: str | None)
     _save_generation(
         db,
         subject_id=subject.id,
+        user_id=user_id,
         content_type="notes",
         query_text=cache_key,
         difficulty=None,
@@ -235,6 +247,7 @@ def generate_quiz(
     topic: str,
     difficulty: str,
     num_questions: int,
+    user_id: int | None = None,
 ) -> tuple[str, list[dict], bool]:
     subject = _subject_or_404(db, year, subject_name)
     if subject is None:
@@ -265,6 +278,7 @@ def generate_quiz(
     _save_generation(
         db,
         subject_id=subject.id,
+        user_id=user_id,
         content_type="quiz",
         query_text=cache_key,
         difficulty=difficulty,
@@ -276,8 +290,21 @@ def generate_quiz(
     return content, sources, False
 
 
-def get_feed(db: Session, year: str | None, subject_name: str | None, limit: int = 50) -> list[dict]:
-    q = db.query(GeneratedContent, Subject).join(Subject, Subject.id == GeneratedContent.subject_id)
+def get_feed(
+    db: Session,
+    year: str | None,
+    subject_name: str | None,
+    user_id: int | None = None,
+    limit: int = 50,
+) -> dict:
+    """Return feed split into my_items and public_items."""
+    q = db.query(GeneratedContent, Subject, Section, User).join(
+        Subject, Subject.id == GeneratedContent.subject_id
+    ).join(
+        Section, Section.id == Subject.section_id
+    ).outerjoin(
+        User, User.id == GeneratedContent.user_id
+    )
 
     if year:
         q = q.filter(Subject.year == year.strip())
@@ -286,26 +313,51 @@ def get_feed(db: Session, year: str | None, subject_name: str | None, limit: int
 
     rows = q.order_by(GeneratedContent.created_at.desc()).limit(limit).all()
 
-    items: list[dict] = []
-    for generated, subject in rows:
-        items.append(
-            {
-                "id": generated.id,
-                "year": subject.year,
-                "subject": subject.name,
-                "content_type": generated.content_type,
-                "query_text": generated.query_text,
-                "difficulty": generated.difficulty,
-                "explanation_mode": generated.explanation_mode,
-                "content": generated.content,
-                "sources": json.loads(generated.sources_json),
-                "is_cached": generated.is_cached,
-                "created_at": generated.created_at,
-            }
-        )
-    return items
+    my_items: list[dict] = []
+    public_items: list[dict] = []
+
+    for generated, subject, section, user in rows:
+        item = {
+            "id": generated.id,
+            "year": subject.year,
+            "section": section.name,
+            "subject": subject.name,
+            "content_type": generated.content_type,
+            "query_text": generated.query_text,
+            "difficulty": generated.difficulty,
+            "explanation_mode": generated.explanation_mode,
+            "content": generated.content,
+            "sources": json.loads(generated.sources_json),
+            "is_cached": generated.is_cached,
+            "created_at": generated.created_at,
+            "user_display_name": user.display_name if user else "Anonymous",
+            "user_photo_url": user.photo_url if user else None,
+        }
+
+        if user_id and generated.user_id == user_id:
+            my_items.append(item)
+        else:
+            public_items.append(item)
+
+    return {"my_items": my_items, "public_items": public_items}
 
 
-def list_subjects(db: Session) -> list[dict]:
-    subjects = db.query(Subject).order_by(Subject.year.asc(), Subject.name.asc()).all()
-    return [{"id": s.id, "year": s.year, "subject": s.name} for s in subjects]
+def list_subjects(db: Session, year: str | None = None, section_name: str | None = None) -> list[dict]:
+    q = db.query(Subject, Section).join(Section, Section.id == Subject.section_id)
+    if year:
+        q = q.filter(Subject.year == year.strip())
+    if section_name:
+        q = q.filter(Section.name == section_name.strip())
+    results = q.order_by(Subject.year.asc(), Section.name.asc(), Subject.name.asc()).all()
+    return [
+        {"id": s.id, "year": s.year, "section": sec.name, "subject": s.name}
+        for s, sec in results
+    ]
+
+
+def list_sections(db: Session, year: str | None = None) -> list[dict]:
+    q = db.query(Section)
+    if year:
+        q = q.filter(Section.year == year.strip())
+    sections = q.order_by(Section.year.asc(), Section.name.asc()).all()
+    return [{"id": s.id, "year": s.year, "name": s.name} for s in sections]
