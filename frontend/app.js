@@ -9,6 +9,21 @@
   // ---- Configuration ----
   const API_BASE = window.location.origin;
 
+  // ---- Firebase Configuration ----
+  const firebaseConfig = {
+    apiKey: "AIzaSyDRIScu8flF7t4hxU_rwg891uBcpedij9A",
+    authDomain: "classsharelm.firebaseapp.com",
+    projectId: "classsharelm",
+    storageBucket: "classsharelm.firebasestorage.app",
+    messagingSenderId: "247398359331",
+    appId: "1:247398359331:web:93540522bf38b64e0c6c96"
+  };
+
+  // Initialize Firebase
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  window.firebaseAuth = auth;  // Expose auth to setupAuth function
+
   // ---- DOM Helpers ----
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
