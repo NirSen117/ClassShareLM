@@ -271,20 +271,32 @@
     // Google Sign-In
     const googleProvider = new firebase.auth.GoogleAuthProvider();
 
-    $('#btn-google').addEventListener('click', async () => {
+    async function signInWithGoogle() {
       try {
         await auth.signInWithPopup(googleProvider);
       } catch (err) {
+        // Fallback: some hosts (Spaces, embedded iframes) block popups.
+        // In that case use redirect-based sign-in which works more reliably.
+        if (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment' || err.message?.toLowerCase().includes('popup')) {
+          try {
+            await auth.signInWithRedirect(googleProvider);
+            return;
+          } catch (redirErr) {
+            console.error('Redirect sign-in failed', redirErr);
+            showToast(friendlyAuthError(redirErr), 'error');
+            return;
+          }
+        }
         showToast(friendlyAuthError(err), 'error');
       }
+    }
+
+    $('#btn-google').addEventListener('click', async () => {
+      await signInWithGoogle();
     });
 
     $('#btn-google-register').addEventListener('click', async () => {
-      try {
-        await auth.signInWithPopup(googleProvider);
-      } catch (err) {
-        showToast(friendlyAuthError(err), 'error');
-      }
+      await signInWithGoogle();
     });
 
     // Logout
