@@ -1,10 +1,11 @@
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from .auth import get_current_user, require_auth
 from .config import FRONTEND_DIR
+from .config import SESSION_COOKIE_NAME, SESSION_COOKIE_MAX_AGE
 from .db import Base, engine, get_db
 from .models import User
 from .schemas import (
@@ -60,6 +61,50 @@ async def get_me(user: User = Depends(require_auth)):
         "display_name": user.display_name,
         "photo_url": user.photo_url,
     }
+
+
+@app.post("/auth/session")
+async def create_session(id_token: str = Form(...)):
+    """Exchange a Firebase ID token for a secure session cookie set as an HttpOnly cookie.
+
+    The frontend should POST the current ID token here after client sign-in. The server
+    will create a session cookie (longer-lived) and set it on the response.
+    """
+    from fastapi import Response
+    import firebase_admin
+    from firebase_admin import auth as firebase_auth
+
+    if not firebase_admin._apps:
+        raise HTTPException(status_code=500, detail="Firebase Admin not initialized on server")
+
+    try:
+        # Create session cookie with server-side expiry
+        expires_in = int(SESSION_COOKIE_MAX_AGE)
+        session_cookie = firebase_auth.create_session_cookie(id_token, expires_in=expires_in)
+    except firebase_auth.InvalidIdTokenError:
+        raise HTTPException(status_code=401, detail="Invalid ID token provided")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create session cookie: {exc}")
+
+    # Set cookie
+    resp = Response(content={"status": "ok"}, media_type="application/json")
+    resp.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_cookie,
+        max_age=SESSION_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path='/'
+    )
+    return resp
+
+
+@app.post("/auth/logout")
+async def clear_session(response: Response):
+    # Clear the session cookie on logout
+    response.delete_cookie(SESSION_COOKIE_NAME, path='/')
+    return {"status": "ok"}
 
 
 # ---- Sections ----

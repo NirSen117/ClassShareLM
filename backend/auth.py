@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from .config import get_firebase_credentials
+from .config import SESSION_COOKIE_NAME, SESSION_COOKIE_MAX_AGE
 from .db import get_db
 from .models import User
 
@@ -57,6 +58,10 @@ def _extract_token(request: Request) -> Optional[str]:
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         return auth_header[7:].strip()
+    # Fallback: check session cookie (created by server)
+    cookie = request.cookies.get(SESSION_COOKIE_NAME)
+    if cookie:
+        return cookie
     return None
 
 
@@ -106,13 +111,21 @@ async def get_current_user(request: Request, db: Session = Depends(get_db)) -> O
         return None
 
     try:
-        decoded = firebase_auth.verify_id_token(token)
+        # Try to verify as an ID token first
+        try:
+            decoded = firebase_auth.verify_id_token(token)
+        except Exception:
+            # If that fails, token may be a session cookie — try session cookie verify
+            decoded = firebase_auth.verify_session_cookie(token, check_revoked=False)
     except firebase_auth.InvalidIdTokenError:
+        logger.exception("Invalid ID token during verification")
         raise HTTPException(status_code=401, detail="Invalid authentication token.")
     except firebase_auth.ExpiredIdTokenError:
+        logger.exception("Expired ID token during verification")
         raise HTTPException(status_code=401, detail="Authentication token has expired.")
     except Exception as exc:
-        logger.error("Token verification error: %s", exc)
+        logger.exception("Token verification error: %s", exc)
+        # Provide additional diagnostic info in logs (no sensitive tokens)
         raise HTTPException(status_code=401, detail="Authentication failed.")
 
     firebase_uid = decoded.get("uid", "")

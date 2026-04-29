@@ -50,3 +50,8 @@ def get_firebase_credentials():
             logger.error("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON")
             return None
     return None
+
+# Session cookie settings (used for server-side sessions)
+SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "session")
+# Cookie duration in seconds (default 14 days)
+SESSION_COOKIE_MAX_AGE = int(os.getenv("SESSION_COOKIE_MAX_AGE", str(14 * 24 * 60 * 60)))
