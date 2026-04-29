@@ -125,11 +125,37 @@
     return headers;
   }
 
-  // ---- API Client ----
+  // Helper to ensure we have a fresh ID token (force refresh when needed)
+  async function ensureIdToken(force = false) {
+    if (currentUser) {
+      try {
+        idToken = await currentUser.getIdToken(force);
+      } catch (e) {
+        console.warn('Failed to refresh ID token', e);
+        idToken = null;
+      }
+    }
+    return idToken;
+  }
+
+  // Generic fetch wrapper that retries once after refreshing token on 401
+  async function authFetch(input, init = {}) {
+    // Attach current token if available
+    init.headers = Object.assign({}, init.headers || {}, authHeaders());
+    let res = await fetch(input, init);
+    if (res.status === 401) {
+      // Try to refresh token and retry once
+      await ensureIdToken(true);
+      init.headers = Object.assign({}, init.headers || {}, authHeaders());
+      res = await fetch(input, init);
+    }
+    return res;
+  }
+
   async function apiPost(endpoint, body) {
-    const res = await fetch(`${API_BASE}${endpoint}`, {
+    const res = await authFetch(`${API_BASE}${endpoint}`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: Object.assign({}, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -144,9 +170,7 @@
     for (const [k, v] of Object.entries(params)) {
       if (v !== null && v !== undefined && v !== '') url.searchParams.set(k, v);
     }
-    const res = await fetch(url.toString(), {
-      headers: idToken ? { 'Authorization': `Bearer ${idToken}` } : {},
-    });
+    const res = await authFetch(url.toString(), {});
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       throw new Error(err.detail || 'Request failed');
@@ -162,7 +186,8 @@
     formData.append('subject', subject);
     const headers = {};
     if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
-    const res = await fetch(`${API_BASE}/documents/upload`, {
+    // Use authFetch so a 401 triggers a token refresh + retry
+    const res = await authFetch(`${API_BASE}/documents/upload`, {
       method: 'POST',
       headers,
       body: formData,
